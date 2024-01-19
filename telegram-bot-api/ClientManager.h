@@ -31,15 +31,35 @@ struct SharedData;
 
 class ClientManager final : public td::Actor {
  public:
-  struct TokenRange {
-    td::uint64 rem;
-    td::uint64 mod;
-    bool operator()(td::uint64 x) {
-      return x % mod == rem;
-    }
+  class AllowedTokens {
+    public:
+      AllowedTokens &operator<<(std::pair<td::int64, td::string> const &value) {
+        allowed_tokens_.emplace(value);
+        return *this;
+      }
+
+      operator bool() const {
+        return !allowed_tokens_.empty();
+      }
+
+      bool operator()(td::int64 user_id, const td::string &token) const {
+        for (auto const &allowed_token : allowed_tokens_) {
+          if (allowed_token.first != user_id) {
+            continue;
+          }
+          if (allowed_token.second == token) {
+            return true;
+          }
+        }
+
+        return false;
+      }
+
+    private:
+      std::map<td::int64, td::string> allowed_tokens_;
   };
-  ClientManager(std::shared_ptr<const ClientParameters> parameters, TokenRange token_range)
-      : parameters_(std::move(parameters)), token_range_(token_range) {
+  ClientManager(std::shared_ptr<const ClientParameters> parameters, AllowedTokens allowed_tokens)
+      : parameters_(std::move(parameters)), allowed_tokens_(allowed_tokens) {
   }
 
   void dump_statistics();
@@ -62,7 +82,7 @@ class ClientManager final : public td::Actor {
   BotStatActor stat_{td::ActorId<BotStatActor>()};
 
   std::shared_ptr<const ClientParameters> parameters_;
-  TokenRange token_range_;
+  AllowedTokens allowed_tokens_;
 
   td::FlatHashMap<td::string, td::uint64> token_to_id_;
   td::FlatHashMap<td::string, td::FloodControlFast> flood_controls_;

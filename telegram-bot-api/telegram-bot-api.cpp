@@ -189,7 +189,7 @@ int main(int argc, char *argv[]) {
   td::uint64 max_connections = 0;
   td::uint64 cpu_affinity = 0;
   td::uint64 main_thread_affinity = 0;
-  ClientManager::TokenRange token_range{0, 1};
+  ClientManager::AllowedTokens allowed_tokens;
 
   parameters->api_id_ = [](auto x) -> td::int32 {
     if (x) {
@@ -226,18 +226,12 @@ int main(int argc, char *argv[]) {
   options.add_option('d', "dir", "server working directory", td::OptionParser::parse_string(working_directory));
   options.add_option('t', "temp-dir", "directory for storing HTTP server temporary files",
                      td::OptionParser::parse_string(temporary_directory));
-  options.add_checked_option('\0', "filter",
-                             "\"<remainder>/<modulo>\". Allow only bots with 'bot_user_id % modulo == remainder'",
-                             [&](td::Slice rem_mod) {
-                               td::Slice rem;
-                               td::Slice mod;
-                               std::tie(rem, mod) = td::split(rem_mod, '/');
-                               TRY_RESULT(rem_i, td::to_integer_safe<td::uint64>(rem));
-                               TRY_RESULT(mod_i, td::to_integer_safe<td::uint64>(mod));
-                               if (rem_i >= mod_i) {
-                                 return td::Status::Error("Wrong argument specified: ensure that remainder < modulo");
-                               }
-                               token_range = {rem_i, mod_i};
+  options.add_checked_option('\0', "bot-token",
+                             "allow only bot with given token to be served",
+                             [&](td::Slice bot_token) {
+                               td::Slice user_id = bot_token.substr(0, bot_token.find(':'));
+                               TRY_RESULT(user_id_i, td::to_integer_safe<td::uint64>(user_id));
+                               allowed_tokens << std::make_pair(user_id_i, bot_token.str());
                                return td::Status::OK();
                              });
   options.add_checked_option('\0', "max-webhook-connections",
@@ -469,7 +463,7 @@ int main(int argc, char *argv[]) {
 
   auto client_manager = sched
                             .create_actor_unsafe<ClientManager>(SharedData::get_client_scheduler_id(), "ClientManager",
-                                                                std::move(parameters), token_range)
+                                                                std::move(parameters), allowed_tokens)
                             .release();
 
   sched
