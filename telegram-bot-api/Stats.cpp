@@ -31,7 +31,7 @@ void ServerCpuStat::update(double now) {
   for (auto &stat : cpu_stat.stat_) {
     stat.add_event(r_cpu_stat.ok(), now);
   }
-  LOG(WARNING) << "CPU usage: " << cpu_stat.stat_[1].get_stat(now).as_vector()[0].value_;
+  LOG(INFO) << "CPU usage: " << cpu_stat.stat_[1].get_stat(now).as_vector()[0].value_;
 }
 
 td::string ServerCpuStat::get_description() {
