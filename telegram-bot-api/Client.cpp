@@ -282,6 +282,7 @@ bool Client::init_methods() {
   methods_.emplace("unhidegeneralforumtopic", &Client::process_unhide_general_forum_topic_query);
   methods_.emplace("unpinallgeneralforumtopicmessages", &Client::process_unpin_all_general_forum_topic_messages_query);
   methods_.emplace("getchatmember", &Client::process_get_chat_member_query);
+  methods_.emplace("getchatmembers", &Client::process_get_chat_members_query);
   methods_.emplace("getchatadministrators", &Client::process_get_chat_administrators_query);
   methods_.emplace("getchatmembercount", &Client::process_get_chat_member_count_query);
   methods_.emplace("getchatmemberscount", &Client::process_get_chat_member_count_query);
@@ -4687,8 +4688,9 @@ class Client::TdOnGetGroupMembersCallback final : public TdQueryCallback {
 
 class Client::TdOnGetSupergroupMembersCallback final : public TdQueryCallback {
  public:
-  TdOnGetSupergroupMembersCallback(const Client *client, Client::ChatType chat_type, PromisedQueryPtr query)
-      : client_(client), chat_type_(chat_type), query_(std::move(query)) {
+  TdOnGetSupergroupMembersCallback(const Client *client, Client::ChatType chat_type, bool administrators_only,
+                                   PromisedQueryPtr query)
+      : client_(client), chat_type_(chat_type), administrators_only_(administrators_only), query_(std::move(query)) {
   }
 
   void on_result(object_ptr<td_api::Object> result) final {
@@ -4698,12 +4700,13 @@ class Client::TdOnGetSupergroupMembersCallback final : public TdQueryCallback {
 
     CHECK(result->get_id() == td_api::chatMembers::ID);
     auto chat_members = move_object_as<td_api::chatMembers>(result);
-    answer_query(JsonChatMembers(chat_members->members_, chat_type_, false, client_), std::move(query_));
+    answer_query(JsonChatMembers(chat_members->members_, chat_type_, administrators_only_, client_), std::move(query_));
   }
 
  private:
   const Client *client_;
   Client::ChatType chat_type_;
+  bool administrators_only_;
   PromisedQueryPtr query_;
 };
 
@@ -10295,6 +10298,31 @@ td::Status Client::process_get_chat_member_query(PromisedQueryPtr &query) {
   return td::Status::OK();
 }
 
+td::Status Client::process_get_chat_members_query(PromisedQueryPtr &query) {
+  auto chat_id = query->arg("chat_id");
+
+  check_chat(chat_id, AccessRights::ReadMembers, std::move(query), [this](int64 chat_id, PromisedQueryPtr query) {
+    auto chat_info = get_chat(chat_id);
+    CHECK(chat_info != nullptr);
+    switch (chat_info->type) {
+      case ChatInfo::Type::Private:
+        return fail_query(400, "Bad Request: there are no members in the private chat", std::move(query));
+      case ChatInfo::Type::Group:
+        return send_request(make_object<td_api::getBasicGroupFullInfo>(chat_info->group_id),
+                            td::make_unique<TdOnGetGroupMembersCallback>(this, false, std::move(query)));
+      case ChatInfo::Type::Supergroup:
+        return send_request(
+            make_object<td_api::getSupergroupMembers>(
+                chat_info->supergroup_id, make_object<td_api::supergroupMembersFilterRecent>(), 0, 100),
+            td::make_unique<TdOnGetSupergroupMembersCallback>(this, get_chat_type(chat_id), false, std::move(query)));
+      case ChatInfo::Type::Unknown:
+      default:
+        UNREACHABLE();
+    }
+  });
+  return td::Status::OK();
+}
+
 td::Status Client::process_get_chat_administrators_query(PromisedQueryPtr &query) {
   auto chat_id = query->arg("chat_id");
 
@@ -10311,7 +10339,7 @@ td::Status Client::process_get_chat_administrators_query(PromisedQueryPtr &query
         return send_request(
             make_object<td_api::getSupergroupMembers>(
                 chat_info->supergroup_id, make_object<td_api::supergroupMembersFilterAdministrators>(), 0, 100),
-            td::make_unique<TdOnGetSupergroupMembersCallback>(this, get_chat_type(chat_id), std::move(query)));
+            td::make_unique<TdOnGetSupergroupMembersCallback>(this, get_chat_type(chat_id), true, std::move(query)));
       case ChatInfo::Type::Unknown:
       default:
         UNREACHABLE();
