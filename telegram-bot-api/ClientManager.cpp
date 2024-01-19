@@ -76,12 +76,16 @@ void ClientManager::send(PromisedQueryPtr query) {
     return fail_query(401, "Unauthorized: invalid token specified", std::move(query));
   }
   auto r_user_id = td::to_integer_safe<td::int64>(query->token().substr(0, token.find(':')));
-  if (r_user_id.is_error() || !token_range_(r_user_id.ok())) {
-    return fail_query(421, "Misdirected Request: unallowed token specified", std::move(query));
+  if (r_user_id.is_error()) {
+    return fail_query(401, "Unauthorized: invalid token specified", std::move(query));
   }
   auto user_id = r_user_id.ok();
   if (user_id <= 0 || user_id >= (static_cast<td::int64>(1) << 54)) {
     return fail_query(401, "Unauthorized: invalid token specified", std::move(query));
+  }
+
+  if (allowed_tokens_ && !allowed_tokens_(user_id, token)) {
+    return fail_query(421, "Misdirected Request: token is not served", std::move(query));
   }
 
   if (query->is_test_dc()) {
@@ -351,10 +355,13 @@ void ClientManager::start_up() {
 
   auto &webhook_db = *parameters_->shared_data_->webhook_db_;
   for (const auto &key_value : webhook_db.get_all()) {
-    if (!token_range_(td::to_integer<td::uint64>(key_value.first))) {
-      LOG(WARNING) << "DROP WEBHOOK: " << key_value.first << " ---> " << key_value.second;
-      webhook_db.erase(key_value.first);
-      continue;
+    if (allowed_tokens_) {
+      auto r_user_id = td::to_integer_safe<td::int64>(key_value.first.substr(0, key_value.first.find(':')));
+      if (r_user_id.is_error() || !allowed_tokens_(r_user_id.ok(), key_value.first)) {
+        LOG(WARNING) << "DROP WEBHOOK: " << key_value.first << " ---> " << key_value.second;
+        webhook_db.erase(key_value.first);
+        continue;
+      }
     }
 
     auto query = get_webhook_restore_query(key_value.first, key_value.second, parameters_->shared_data_);
