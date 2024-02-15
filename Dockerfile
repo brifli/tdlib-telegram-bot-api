@@ -49,6 +49,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         "ca-certificates (>= 20230311)" \
         "zlib1g (>= 1:1.2.13.dfsg-1)" \
         "libssl3 (>= 3.0.11-1~deb12u2)" \
+        "sudo (>= 1.9.13p3-1+deb12u1)" \
     ;
 
 COPY --from=builder /brifli /brifli
@@ -74,6 +75,13 @@ RUN useradd \
         ${TELEGRAM_BOT_API_HOME} \
         ${TELEGRAM_BOT_API_TMPDIR} \
         ${TELEGRAM_BOT_API_VAR_LIB} \
+    ;
+RUN mkdir -p /etc/sudoers.d \
+    && echo \
+        "${TELEGRAM_BOT_API_USER} ALL=(ALL) NOPASSWD:ALL" \
+        > \
+        /etc/sudoers.d/${TELEGRAM_BOT_API_USER} \
+    && chmod 440 /etc/sudoers.d/${TELEGRAM_BOT_API_USER} \
     ;
 USER ${TELEGRAM_BOT_API_USER}:${TELEGRAM_BOT_API_USER}
 
