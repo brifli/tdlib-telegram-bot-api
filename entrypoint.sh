@@ -14,7 +14,7 @@ sudo chown \
     "${TELEGRAM_BOT_API_VAR_LIB}" \
 ;
 
-telegram-bot-api \
+exec telegram-bot-api \
     --dir="${TELEGRAM_BOT_API_VAR_LIB}" \
     --temp-dir="${TELEGRAM_BOT_API_TMPDIR}" \
     "$@"
