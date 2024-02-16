@@ -183,6 +183,7 @@ int main(int argc, char *argv[]) {
   int memory_verbosity_level = VERBOSITY_NAME(INFO);
   td::int64 log_max_file_size = 2000000000;
   td::string working_directory = PSTRING() << "." << TD_DIR_SLASH;
+  td::string files_directory;
   td::string temporary_directory;
   td::string username;
   td::string groupname;
@@ -224,6 +225,7 @@ int main(int argc, char *argv[]) {
   options.add_checked_option('s', "http-stat-port", "HTTP statistics port",
                              td::OptionParser::parse_integer(http_stat_port));
   options.add_option('d', "dir", "server working directory", td::OptionParser::parse_string(working_directory));
+  options.add_option('f', "files-dir", "files storage directory", td::OptionParser::parse_string(files_directory));
   options.add_option('t', "temp-dir", "directory for storing HTTP server temporary files",
                      td::OptionParser::parse_string(temporary_directory));
   options.add_checked_option('\0', "bot-token",
@@ -394,6 +396,30 @@ int main(int argc, char *argv[]) {
       td::rmdir(r_temp_dir.ok()).ensure();
     }
 
+    if (!files_directory.empty()) {
+      if (td::PathView(files_directory).is_relative()) {
+        files_directory = working_directory + files_directory;
+      }
+      if (files_directory.back() != TD_DIR_SLASH) {
+        files_directory += TD_DIR_SLASH;
+      }
+
+      // check file directory
+      TRY_RESULT_PREFIX_ASSIGN(files_directory, td::realpath(files_directory, true),
+                               "Invalid file storage directory specified: ");
+
+      TRY_STATUS_PREFIX(td::mkpath(files_directory, 0750), "Failed to create file storage directory: ");
+
+      auto r_temp_file = td::mkstemp(files_directory);
+      if (r_temp_file.is_error()) {
+        return td::Status::Error(PSLICE()
+                                 << "Can't create files in the directory \"" << files_directory
+                                 << "\". Use --files-dir option to specify another directory for files storage");
+      }
+      r_temp_file.ok_ref().first.close();
+      td::unlink(r_temp_file.ok().second).ensure();
+    }
+
     if (!temporary_directory.empty()) {
       if (td::PathView(temporary_directory).is_relative()) {
         temporary_directory = working_directory + temporary_directory;
@@ -434,6 +460,7 @@ int main(int argc, char *argv[]) {
   }
 
   parameters->working_directory_ = std::move(working_directory);
+  parameters->files_directory_ = std::move(files_directory);
 
   if (parameters->default_max_webhook_connections_ <= 0) {
     parameters->default_max_webhook_connections_ = parameters->local_mode_ ? 100 : 40;
